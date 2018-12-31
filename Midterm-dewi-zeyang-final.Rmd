@@ -1,0 +1,447 @@
+---
+title: 'To: Professor Green'
+author: 'from: Dewi Djajaatmadja & Zeyang Wu'
+date: "May 13, 2017"
+output:
+  pdf_document: default
+---
+
+#### RE: Aiding Africa Project
+```{r eval=FALSE, include=FALSE}
+# Course: BUAN 5260
+# Title: Midterm Project
+# Purpose: Midterm
+# Date: May 11, 2018
+# Author: Dewi Djajaatmadja, Zeyang Wu
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r include=FALSE}
+# Clear packages 
+if(is.null(sessionInfo()$otherPkgs) == FALSE)lapply(
+  paste("package:", names(sessionInfo()$otherPkgs), sep=""), 
+  detach, character.only = TRUE, unload = TRUE)
+
+# Clear environment
+rm(list = ls(all = TRUE)) 
+
+```
+
+```{r include=FALSE}
+#load the packages
+library(dplyr)
+library(igraph)
+library(lpSolveAPI)
+
+# Read source file
+s <- read.csv('5260_S18_Aiding_Africa_Data.csv', as.is = T, skip = 1)[1:30,]
+
+ # Capture speed and capacity for each transit mode
+t1 <- `colnames<-`(s[1:3, 1:3], c('mode', 'cap', 'speed'))
+  
+# Capture transit mode, distance, and cost for each route
+t2 <- `colnames<-`(s[, 8:12], c('from', 'to', 'mode', 'dist', 'cost'))
+
+values <- c('Airplane', 'Ship', 'Truck')
+index <- c('400', '35', '50')
+t2$speed <- as.numeric(index[match(t2$mode, values)])
+
+
+values <-c('New York, NY','Jacksonville, FL','Lusaka, Zambia','Libreville, Gabon','Nairobi, Kenya','Khartoum, Sudan','Luanda, Angola','Dakar, Senegal','Niamey, Niger','Kosongo, D.R. Congo','Ndjamena, Chad')
+index <- c('1', '2','3','4','5','6','7','8','9','10','11')
+
+t2$form1 <- as.numeric(index[match(t2$from, values)])
+t2$to1 <- as.numeric(index[match(t2$to, values)])
+
+t2$time <- t2$dist/t2$speed #create time column
+t2$time=round(t2$time,2) #round the time to 2 digits
+```
+
+## Network graph
+For the Aiding Africa problem, it consists 11 cities, 2 origins from the US and 9 destinations in the Africa. 6 of the Africa cities are used as connections to the other 3. The 11 cities are linked by 30 routes, every route is conducted by 1 of the 3 transportation modes(airplane, ship, truck). For each route, it has unique cost and vehicle capacities. The graph below shows the relationship between the cities and the routes. 
+
+```{r echo=FALSE, fig.height= 6}
+
+# import data file
+seer <-  t2[, 7:9]
+
+# Make graph by setting 11 nodes/vertices, edges from nodes/vertices and distances from data matrix
+g <- add_edges(make_empty_graph(n = 11, directed = FALSE), 
+               t(seer[, 1:2]), weight=seer[,3]) %>%
+# Set vertice/node names 
+  set_vertex_attr("name", value = c("NY","FL","Senegal","Gabon","Angola","Sudan","Zambia","Kenya", "Niger", "Congo", "Chad"))
+
+# Set coordinates so looks similar to book diagram
+  ## This is just for visualization, but could include it in data file
+ g$layout <- matrix(c(0,   0,  100,  100,  100, 100,  100, 100,  200, 200,  200, 
+                     160, 130, 180, 165, 150, 135, 120, 105, 170, 145, 120), nc = 2)
+
+# Lable edges with the distance or weight
+#E(g)$label <- seer[, 3]
+
+# Show network graph
+graph<- plot(g, vertex.size=37, vertex.color="plum3", vertex.label.color="white")
+
+```
+
+
+## Case 1 - Shortest Paths
+The minimine travel time among the 11 cities takes 592.44 hours to complete. For the shortest paths, Table 1 shows the quickest travel routes and time needed from the 2 cities in the US to the 9 destinations in Africa. 
+
+The route that indicate significant time bottlenecks is from "Jacksonville, Florida" to "Lusaka, Zambia", this route needs to reduce 0.68 hours (approximately 41 minutes) to affect vehicle allocation across the netwoek and decrease the minumum total travel time. 
+
+```{r include=FALSE}
+# Set up model
+sr <- make.lp(0, 31)
+
+# 20.25, 172.11, 20.13, 17.60, 186.46, 119.20, 19.86, 180.83, 19.90, 17.71, 195.09, 112.11, 10.18, 20.64, 6.31, 5.16, 58.32, 33.12
+
+# Set objective fn and constraints
+obj_fn <- c(0, as.vector(t2$time))
+set.objfn(sr, obj_fn)
+
+add.constraint(sr, c( 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), "=", 9) #1
+add.constraint(sr, c( -1, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), "=", 0) #2
+add.constraint(sr, c( 0, -1, 0, 0, 0, 0, 0, -1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0), "=", -1) #3
+add.constraint(sr, c( 0, 0, -1, 0, 0, 0, 0, 0, -1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0), "=", -1) #4
+add.constraint(sr, c( 0, 0, 0, -1, 0, 0, 0, 0, 0, -1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0), "=", -1) #5
+add.constraint(sr, c( 0, 0, 0, 0, -1, 0, 0, 0, 0, 0, -1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0), "=", -1) #6
+add.constraint(sr, c( 0, 0, 0, 0, 0, -1, 0, 0, 0, 0, 0, -1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0), "=", -1) #7
+add.constraint(sr, c( 0, 0, 0, 0, 0, 0, -1, 0, 0, 0, 0, 0, -1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1), "=", -1) #8
+add.constraint(sr, c( 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, -1, -1, -1, -1, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), "=", -1) #9
+add.constraint(sr, c( 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, -1, -1, -1, -1, -1, 0, 0, 0, 0, 0, 0), "=", -1) #10
+add.constraint(sr, c( 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, -1, -1, -1, -1, -1), "=", -1) #11
+
+ dimnames(sr) <- list(c("NY", "FL", "Zambia", "Gabon", "Kenya", "Sudan", "Angola", "Senegal", "Niger", "Congo", "Chad"), c("Dummy", "NY-ZM","NY-GA","NY-KE","NY-SU","NY-AN","NY-SE","FL-ZM","FL-GA","FL-KE","FL-SU","FL-AN","FL-SE","ZM-NI","GA-NI","KE-NI","SU-NI","AN-NI","SE-NI","ZM-CO","GA-CO","KE-CO","SU-CO","AN-CO","SE-CO","ZM-CH","GA-CH","KE-CH","SU-CH","AN-CH","SE-CH"))
+ 
+ # Solve the model
+solve(sr)
+
+# Make results and sensitivity table 
+ps <- get.primal.solution(sr)
+obj_sa <- get.sensitivity.obj(sr)
+rhs_sa <- get.sensitivity.rhs(sr)
+
+nv <- length(get.variables(sr))
+mc <- length(get.constr.type(sr))
+ov <- paste0("Objective Value = ", ps[1])
+
+sa_tab <- rbind(ps[2:(nv + mc + 1)], 
+                round(c(rhs_sa$duals[1:mc], obj_fn), 2),
+                round(c(rhs_sa$dualsfrom[1:mc],obj_sa$objfrom), 2),
+                round(c(rhs_sa$dualstill[1:mc],obj_sa$objtill), 2)) 
+colnames(sa_tab) <- c(rownames(sr), colnames(sr))
+rownames(sa_tab) <- c("solution", "duals/coef", "Sens From", "Sens Till")      
+
+# Objective value and sensitivity analysis table
+ov
+sa_tab <- ifelse(sa_tab == -1.000e+30, "-inf", sa_tab)
+sa_tab <- ifelse(sa_tab == 1.000e+30, "inf", sa_tab)
+as.table(sa_tab)
+```
+
+\begin{table}
+\caption{Shortest travel time(For Case 1)}
+\centering
+\begin{tabular}[t]{l l r r}
+\hline
+\textbf{Departure City} & \textbf{Arrival City} & \textbf{Travel Time (hr)} & \\
+\hline
+New York, NY & Libreville, Gabon & 172.11\\
+
+New York, NY & Khartoum, Sudan & 17.6\\
+
+New York, NY & Luanda, Angola & 186.46\\
+
+Jacksonville, Florida & Lusaka, Zambia & 19.86\\
+
+Jacksonville, Florida & Nairobi, Kenya & 19.9\\
+
+Jacksonville, Florida & Khartoum, Sudan & 112.11\\
+
+New York, NY(Through Khartoum, Sudan) & Niamey, Niger &  22.76\\
+
+New York, NY(Through Khartoum, Sudan) & Kosongo, D.R. Congo  &  21.04\\
+
+New York, NY(Through Khartoum, Sudan) & Ndjamena, Chad  &  20.60\\
+\hline
+Total &  & 592.44\\
+
+\end{tabular}
+\end{table}
+
+
+\pagebreak
+
+
+## Case 2 - Minimum cost flow
+
+Network path that minimize total cost incurs a total expense of $310,861,299 USD. This value is an underestimate as it allocates number of vehicles to its decimals, which might not be realistic. So to achieve the minimum cargo requirement of each city, should round-up the number of vehicles to nearest integer.
+
+In this case, some restictions were applied: Niamey, Niger, can only recieve cargo via air; Ndjamena, Chad, cannot receive more than 840 trucks from each port; routes between Lusaka, Zambia to Ndjamena, Chad, and Khartoum, Sudan to Ndjamena, Chad can only allow 200 flights from each airfield.  Despite these restrictions, the cargo needs of all 9 destinations are still fully satisfied. Table 2 lists the routes used to achieve the minimum cost path, and the vehicle allocations for each of these routes.
+
+There are three routes tied for tighest bottleneck: Jacksonville, FL to Lusaka, Zambia; New York, NY to Nairobi, Kenya; and Luanda, Angola, to Kosongo, D.R. Congo. The route from Jacksonville, FL to Lusaka, Zambia needs to reduce costs by at most $1,000 USD to decrease the minimum total transit cost.
+
+
+```{r include=FALSE}
+# Set really high cost M
+M <- 999*1000
+
+# Set up model
+mcf <- make.lp(0, 30)
+
+# Set objective fn
+obj_fn <- c(32000,	30000,	30000,	45000,	50000,	55000,	56000,	48000,	44000,	49000,	57000,	61000,	M,5000,	9000,	M,	4000,	7000,	M,	5000,	8000,	22000,	19000,	4000,	24000,	22000,	23000,	28000,	25000,	2000)
+set.objfn(mcf, obj_fn)
+
+# Set Constraints
+add.constraint(mcf, c(240,240,240,150,150,150,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0), "<=",  500000) #NY
+add.constraint(mcf, c(0,0,0,0,0,0,240,240,240,150,150,150,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0), "<=",  500000) #FL
+add.constraint(mcf, c(-240,0,0,0,0,0,-240,0,0,0,0,0,17.7,17.7,17.7,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0), "<=",  -50000) #Senegal
+add.constraint(mcf, c(0,-240,0,0,0,0,0,-240,0,0,0,0,0,0,0,17.7,17.7,17.7,0,0,0,0,0,0,0,0,0,0,0,0), "<=",  -100000) #Gabon
+add.constraint(mcf, c(0,0,-240,0,0,0,0,0,-240,0,0,0,0,0,0,0,0,0,17.7,17.7,17.7,0,0,0,0,0,0,0,0,0), "<=",  -130000) #Angola
+add.constraint(mcf, c(0,0,0,-150,0,0,0,0,0,-150,0,0,0,0,0,0,0,0,0,0,0,150,150,150,0,0,0,0,0,0), "<=",  -90000) #Sudan
+add.constraint(mcf, c(0,0,0,0,-150,0,0,0,0,0,-150,0,0,0,0,0,0,0,0,0,0,0,0,0,150,150,150,0,0,0), "<=",  -150000) #Zambia
+add.constraint(mcf, c(0,0,0,0,0,-150,0,0,0,0,0,-150,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,150,150,150), "<=",  -120000) #Kenya
+add.constraint(mcf, c(0,0,0,0,0,0,0,0,0,0,0,0,-17.7,0,0,-17.7,0,0,-17.7,0,0,-150,0,0,-150,0,0,-150,0,0), "<=",  -100000) #Niger
+add.constraint(mcf, c(0,0,0,0,0,0,0,0,0,0,0,0,0,-17.7,0,0,-17.7,0,0,-17.7,0,0,-150,0,0,-150,0,0,-150,0), "<=",  -180000) #Congo
+add.constraint(mcf, c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,-17.7,0,0,-17.7,0,0,-17.7,0,0,-150,0,0,-150,0,0,-150), "<=",  -80000) #Chad
+
+# other constraints
+add.constraint(mcf, c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,17.7,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0), "<=", 840*17.7) #SeCh
+add.constraint(mcf, c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,17.7,0,0,0,0,0,0,0,0,0,0,0,0), "<=", 840*17.7) #GaCh
+add.constraint(mcf, c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,17.7,0,0,0,0,0,0,0,0,0), "<=", 840*17.7) #AnCh
+add.constraint(mcf, c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,150,0,0,0,0,0,0), "<=", 200*150) #SuCh
+add.constraint(mcf, c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,150,0,0,0), "<=", 200*150) #ZaCh
+
+dimnames(mcf) <- list(c("NY", "FL","Senegal", "Gabon", "Angola",
+                       "Sudan", "Zambia", "Kenya", "Niger", "Congo", "Chad", 
+                       "Senegal-Chad Truck Limit","Gabon-Chad Truck Limit", "Angola-Chad Truck Limit", "Sudan-Chad Flight Limit", 
+                       "Zambia-Chad Flight Limit"),
+                       c("NySe",	"NyGa",	"NyAn",	"NySu",	"NyZa",	"NyKe",	"FlSe",	"FlGa",	"FlAn",	"FlSu",	"FlZa",	"FlKe",	"SeNi",	"SeCo",	"SeCh",	"GaNi",	"GaCo",	"GaCh",	"AnNi",	"AnCo",	"AnCh",	"SuNi",	"SuCo",	"SuCh",	"ZaNi",	"ZaCo",	"ZaCh",	"KeNi",	"KeCo",	"KeCh") )
+	
+# Solve the model
+solve(mcf)
+
+# Make results and sensitivity table 
+ps <- get.primal.solution(mcf)
+obj_sa <- get.sensitivity.obj(mcf)
+rhs_sa <- get.sensitivity.rhs(mcf)
+
+nv <- length(get.variables(mcf))
+mc <- length(get.constr.type(mcf))
+ov <- paste0("Objective Value = ", ps[1])
+
+sa_tab <- rbind(ps[2:(nv + mc + 1)], 
+                round(c(rhs_sa$duals[1:mc], obj_fn), 2),
+                round(c(rhs_sa$dualsfrom[1:mc],obj_sa$objfrom), 2),
+                round(c(rhs_sa$dualstill[1:mc],obj_sa$objtill), 2)) 
+colnames(sa_tab) <- c(rownames(mcf), colnames(mcf))
+rownames(sa_tab) <- c("solution", "duals/coef", "Sens From", "Sens Till")      
+
+# Objective value and sensitivity analysis table
+ov
+sa_tab <- ifelse(sa_tab == -1.000e+30, "-inf", sa_tab)
+sa_tab <- ifelse(sa_tab == 1.000e+30, "inf", sa_tab)
+as.table(sa_tab)
+```
+
+\begin{table}
+\caption{Recommended Routes for Minimum Cost Allocation(For case 2)}
+\centering
+\begin{tabular}[t]{l l r r}
+\hline
+\textbf{Departure City} & \textbf{Arrival City} & \textbf{No. of Vehicles} & \textbf{Total Cargo Delivered(Tons)}\\
+\hline
+New York, NY & Lusaka, Zambia & 266.7 & 40,005\\
+
+New York, NY & Libreville, Gabon & 1,166.7 & 280,008\\
+
+New York, NY & Luanda, Angola & 541.7 & 130,008\\
+
+New York, NY & Dakar, Senegal & 208.3 & 49,992\\
+
+Jacksonville, Florida & Lusaka, Zambia & 733.3 & 109,995\\
+
+Jacksonville, Florida & Nairobi, Kenya & 1,133.3 & 169,995\\
+
+Jacksonville, Florida & Khartoum, Sudan & 1,466.7 & 220,005\\
+
+Khartoum, Sudan & Niamey, Niger & 666.7 & 100,005\\
+
+Libreville, Gabon & Kosongo, D.R. Congo & 10,169.5 & 180,000\\
+
+Nairobi, Kenya & Ndjamena, Chad & 333.3 & 49,995\\
+
+Khartoum, Sudan & Ndjamena, Chad & 200.0 & 30,000\\
+\hline
+Total &  &  & 1,360,008\\
+
+
+\end{tabular}
+\end{table}
+\pagebreak
+
+
+## Case 3 - Maximum cargo flow 
+Given tighter shipment restrictions on more routes, the network paths that maximizes total cargo dispatches only 816,170 tons cargo. Table 3 shows the  the routes used to achieve the maximum cargo,and the vehicle allocations for each of these routes. Unfortunately, in this case, only 6 destinations recieve its full cargo requirements. The 3 cities with lacking cargo are: Lusaka, Zambia; Kosongo, D.R. Congo; and Ndjamena, Chad. 
+
+To increase the total cargo allocation, we can increase number of flights flown from Nairobi, Kenya and Khartoum, Sudan to Jacksonville, FL. We can increase number of flights by 60 and 80, respectively. These extra flights will cause bottlenecks for routes from Nairobi, Kenya and Khartoum, Sudan to Kosongo, D.R. Congo. The restriction on routes from Nairobi, Kenya and Khartoum, Sudan to Kosongo, D.R. Congo, should be increased by 60 and 80 respectively. These bottlenecks are largely driven by the cargo shortage in Kosongo, D.R. Congo, which is the largest.
+
+```{r include=FALSE}
+#include=FALSE
+# Maximum Flow
+
+# Set up model
+mf <- make.lp(0, 41)
+lp.control(mf, sense = "max")
+
+## Set objective fn (Tons) =  (Tons/trip) x (trip), 
+obj_fn <- c(rep(0, 32),rep(1, 9))
+set.objfn(mf, obj_fn)
+
+# Set up constraints
+add.constraint(mf, c(1,1,rep(0, 39)),"<=", 1000000)
+add.constraint(mf, c(-1,0,150,240,150,150,240,240,rep(0, 33)),"=",  0) #NY
+add.constraint(mf, c(0,-1,0,0,0,0,0,0,150,240,150,150,240,240,rep(0,27)),"=",  0) #FL
+add.constraint(mf, c(0,0,-150,0,0,0,0,0,-150,0,0,0,0,0,150,0,0,0,0,0,150,0,0,0,0,0,150,0,0,0,0,0,1,0,0,0,0,0,0,0,0),"=",  0) #Zambia
+add.constraint(mf, c(0,0,0,-240,0,0,0,0,0,-240,0,0,0,0,0,17.7,0,0,0,0,0,17.7,0,0,0,0,0,17.7,0,0,0,0,0,1,0,0,0,0,0,0,0),"=",  0) #Gabon
+add.constraint(mf, c(0,0,0,0,-150,0,0,0,0,0,-150,0,0,0,0,0,150,0,0,0,0,0,150,0,0,0,0,0,150,0,0,0,0,0,1,0,0,0,0,0,0),"=",  0) #Kenya
+add.constraint(mf, c(0,0,0,0,0,-150,0,0,0,0,0,-150,0,0,0,0,0,150,0,0,0,0,0,150,0,0,0,0,0,150,0,0,0,0,0,1,0,0,0,0,0),"=",  0) #Sudan
+add.constraint(mf, c(0,0,0,0,0,0,-240,0,0,0,0,0,-240,0,0,0,0,0,17.7,0,0,0,0,0,17.7,0,0,0,0,0,17.7,0,0,0,0,0,1,0,0,0,0),"=",  0) #Angola
+add.constraint(mf, c(0,0,0,0,0,0,0,-240,0,0,0,0,0,-240,0,0,0,0,0,17.7,0,0,0,0,0,17.7,0,0,0,0,0,17.7,0,0,0,0,0,1,0,0,0),"=",  0) #Senegal
+add.constraint(mf, c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,-150,-17.7,-150,-150,-17.7,-17.7,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0),"=",  0) #Niger
+add.constraint(mf, c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,-150,-17.7,-150,-150,-17.7,-17.7,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0),"=",  0) #Congo
+add.constraint(mf, c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,-150,-17.7,-150,-150,-17.7,-17.7,0,0,0,0,0,0,0,0,1),"=",  0) #Chad
+add.constraint(mf, c(rep(0, 32),-1,-1,-1,-1,-1,-1,-1,-1,-1), "<=", 1000000)
+
+# Air Constraints
+add.constraint(mf, c(0,0,150,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0),"<=", 300*150) #NyZa
+add.constraint(mf, c(0,0,0,0,150,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0),"<=", 500*150) #NyKe
+add.constraint(mf, c(0,0,0,0,0,150,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0),"<=", 500*150) #NySu
+add.constraint(mf, c(0,0,0,0,0,0,0,0,150,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0),"<=", 500*150) #FlZa
+add.constraint(mf, c(0,0,0,0,0,0,0,0,0,0,150,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0),"<=", 700*150) #FlKe
+add.constraint(mf, c(0,0,0,0,0,0,0,0,0,0,0,150,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0),"<=", 600*150) #FlSu
+add.constraint(mf, c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,150,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0),"<=", 200*150) #ZaNi
+add.constraint(mf, c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,150,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0),"<=", 0) #KeNi
+add.constraint(mf, c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,150,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0),"<=", 300*150) #SuNi
+add.constraint(mf, c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,150,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0),"<=", 140*150) #ZaCo
+add.constraint(mf, c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,150,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0),"<=", 40*150) #KeCo
+add.constraint(mf, c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,150,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0),"<=", 80*150) #SuCo
+add.constraint(mf, c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,150,0,0,0,0,0,0,0,0,0,0,0,0,0,0),"<=", 0) #ZaCh
+add.constraint(mf, c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,150,0,0,0,0,0,0,0,0,0,0,0,0),"<=", 300*150) #KeCh
+add.constraint(mf, c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,150,0,0,0,0,0,0,0,0,0,0,0),"<=", 40*150) #SuCh
+
+# Truck Contraints
+add.constraint(mf, c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,17.7,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0),"<=", 250*17.7) #AnCo
+add.constraint(mf, c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,17.7,0,0,0,0,0,0,0,0,0,0),"<=", 240*17.7) #AnCh
+add.constraint(mf, c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,17.7,0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0),"<=", 300*17.7) #GaCo
+add.constraint(mf, c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,17.7,0,0,0,0, 0,0,0,0,0,0,0,0,0),"<=", 160*17.7) #GaCh
+add.constraint(mf, c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,17.7,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0),"<=", 700*17.7) #SeCo
+add.constraint(mf, c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,17.7,0,0,0,0,0,0,0,0,0),"<=", 450*17.7) #Sech
+
+# Aid Requirements Constraints
+add.constraint(mf, c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0),"<=", 150000) #Zambia
+add.constraint(mf, c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0),"<=", 100000) #Gabon
+add.constraint(mf, c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0),"<=", 120000) #Kenya
+add.constraint(mf, c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0),"<=", 90000) #Sudan
+add.constraint(mf, c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0),"<=", 130000) #Angola
+add.constraint(mf, c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0),"<=", 50000) #Senegal
+add.constraint(mf, c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0),"<=", 100000) #Niger
+add.constraint(mf, c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0),"<=", 180000) #Congo
+add.constraint(mf, c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1),"<=", 80000) #Chad
+
+
+dimnames(mf) <- list(c("Dummy Source","NY", "FL","Zambia", "Gabon", "Kenya",
+                       "Sudan", "Angola", "Senegal", "Niger", "Congo", "Chad", "Dummy Sink",
+                       "Ny-Zambia Air", "NY-Kenya Air", "NY-Sudan Air", "FL-Zambia Air", "FL-Kenya Air",
+                       "FL-Sudan Air", "Zambia-Niger Air", "Kenya-Niger Air", "Sudan-Niger Air", "Zambia-Congo Air",
+                       "Kenya-Congo Air", "Sudan-Congo Air", "Zambia-Chad Air", "Kenya-Chad Air", "Sudan-Chad Air",
+                       "Angola-Congo Truck", "Angola-Chad Truck", "Gabon-Congo Truck", "Gabon-Chad Truck",
+                       "Senegal-Congo Truck", "Senegal-Chad Truck",  "ZambiaD", "GabonD", "KenyaD", "SudanD", "AngolaD", "SenegalD", "NigerD", "CongoD", "ChadD"),
+                       c("Du-NY", "Du-FL", "NY-ZM","NY-GA","NY-KE","NY-SU","NY-AN","NY-SE","FL-ZM","FL-GA","FL-KE","FL-SU","FL-AN","FL-SE","ZM-NI","GA-NI","KE-NI","SU-NI","AN-NI","SE-NI","ZM-CO","GA-CO","KE-CO","SU-CO","AN-CO","SE-CO","ZM-CH","GA-CH","KE-CH","SU-CH","AN-CH","SE-CH", "ZA-Du", "GA-Du", "KE-Du", "SU-Du", "AN-Du", "SE-Du", "NI-Du", "CO-Du", "CH-Du") )
+
+# Solve the model
+solve(mf)
+
+# Make results and sensitivity table
+ps <- get.primal.solution(mf)
+obj_sa <- get.sensitivity.obj(mf)
+rhs_sa <- get.sensitivity.rhs(mf)
+
+nv <- length(get.variables(mf))
+mc <- length(get.constr.type(mf))
+ov <- paste0("Objective Value = ", ps[1])
+
+sa_tab <- rbind(ps[2:(nv + mc + 1)],
+                round(c(rhs_sa$duals[1:mc], obj_fn), 2),
+                round(c(rhs_sa$dualsfrom[1:mc],obj_sa$objfrom), 2),
+                round(c(rhs_sa$dualstill[1:mc],obj_sa$objtill), 2))
+colnames(sa_tab) <- c(rownames(mf), colnames(mf))
+rownames(sa_tab) <- c("solution", "duals/coef", "Sens From", "Sens Till")
+
+# Objective value and sensitivity analysis table
+ov
+sa_tab <- ifelse(sa_tab == -1.000e+30, "-inf", sa_tab)
+sa_tab <- ifelse(sa_tab == 1.000e+30,  "inf",  sa_tab)
+as.table(sa_tab)
+```
+
+
+
+\begin{table}
+\caption{Recommended Allocation (Maximum Cargo Shipped)(For case 3)}
+\centering
+\begin{tabular}[t]{l l r r}
+\hline
+\textbf{Departure City} & \textbf{Arrival City} & \textbf{No. of Vehicles} & \textbf{Total Cargo Delivered(Tons)}\\
+\hline
+New York, NY & Lusaka, Zambia & 300.0 & 45,000 \\
+
+New York, NY & Libreville, Gabon & 679.8 & 163,152 \\
+
+New York, NY & Nairobi, Kenya & 500.0 & 75,000 \\
+
+New York, NY & Khartoum, Sudan & 500.0 & 75,000 \\
+
+New York, NY & Luanda, Angola & 577.8 & 138,672 \\
+
+New York, NY & Dakar, Senegal & 293.1 & 70,344 \\
+
+Jacksonville, Florida & Lusaka, Zambia & 500.0 & 75,000 \\
+
+Jacksonville, Florida & Nairobi, Kenya & 640.0 & 96,000 \\
+
+Jacksonville, Florida & Khartoum, Sudan & 520.0 & 78,000 \\
+
+Libreville, Gabon & Niamey, Niger & 3107.3 & 54,999.21 \\
+
+Khartoum, Sudan & Niamey, Niger & 300.0 & 45,000 \\
+
+Libreville, Gabon & Kosongo, D.R. Congo & 300.0 & 5,310 \\
+
+Nairobi, Kenya & Kosongo, D.R. Congo & 40.0 & 6,000 \\
+
+Khartoum, Sudan & Kosongo, D.R. Congo & 80.0 & 12,000 \\
+
+Luanda, Angola & Kosongo, D.R. Congo & 250.0 & 4,425 \\
+
+Dakar, Senegal & Kosongo, D.R. Congo & 700.0 & 12,390 \\
+
+Libreville, Gabon & Ndjamena, Chad & 160.0 & 2,832 \\
+
+Nairobi, Kenya & Ndjamena, Chad & 300.0 & 45,000 \\
+
+Khartoum, Sudan & Ndjamena, Chad & 40.0 & 6,000 \\
+
+Luanda, Angola & Ndjamena, Chad & 240.0 & 4,248 \\
+
+Dakar, Senegal & Ndjamena, Chad & 456.0 & 8,071.2\\
+\hline
+Total &  &  & 816,170\\
+
+\end{tabular}
+\end{table}
